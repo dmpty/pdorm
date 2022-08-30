@@ -1,0 +1,27 @@
+{
+    "name": "dmpty/pdorm",
+    "description": "A simple php orm.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "pdo",
+        "orm",
+        "model",
+        "collection"
+    ],
+    "authors": [
+        {
+            "name": "dmpty",
+            "email": "dmptyy@gmail.com"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "Dmpty\\PdOrm\\": "src/"
+        }
+    },
+    "require": {
+        "php": ">=8.0",
+        "ext-pdo": "*"
+    }
+}
