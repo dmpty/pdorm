@@ -8,6 +8,8 @@ class DB
 {
     protected static ?DB $instance = null;
 
+    private array $preConnection = [];
+
     private array $connections = [];
 
     private function __construct()
@@ -26,25 +28,27 @@ class DB
         return static::$instance;
     }
 
-    public static function connect(PDO $pdo, string $connection = ''): void
+    public static function connect(string $dsn, string $username, string $password, string $connection = ''): void
     {
+        $connection = $connection ?: 'default';
         $instance = static::getInstance();
-        if (!count($instance->connections)) {
-            $instance->connections['default'] = $pdo;
-        }
-        if (!$connection) {
-            $instance->connections[$connection] = $pdo;
-        }
+        $instance->preConnection[$connection] = [$dsn, $username, $password];
     }
 
     public static function getPdo(string $connection = ''): PDO
     {
         $connection = $connection ?: 'default';
         $instance = static::getInstance();
-        if (!isset($instance->connections[$connection])) {
-            throw new PdOrmException('Connection ' . $connection . ' does not exist');
+        if (isset($instance->connections[$connection])) {
+            return $instance->connections[$connection];
         }
-        return $instance->connections[$connection];
+        if (isset($instance->preConnection[$connection])) {
+            list($dsn, $username, $password) = $instance->preConnection[$connection];
+            $pdo = new PDO($dsn, $username, $password);
+            $instance->connections[$connection] = $pdo;
+            return $pdo;
+        }
+        throw new PdOrmException('Connection ' . $connection . ' does not exist');
     }
 
     public static function connection(string $connection): QueryBuilder
