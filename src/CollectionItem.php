@@ -62,7 +62,7 @@ class CollectionItem implements ArrayAccess, ArrayAble, JsonSerializable
         unset($this->attributes[$offset]);
     }
 
-    protected function json2Arr($json): array
+    protected function json2Arr(string $json): array
     {
         try {
             return json_decode($json, true);

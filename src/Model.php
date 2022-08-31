@@ -23,7 +23,7 @@ abstract class Model extends CollectionItem
         parent::__construct($attributes);
     }
 
-    public static function query(): QueryBuilder
+    public static function query(): Query
     {
         return (new static)->newQuery();
     }
@@ -33,9 +33,9 @@ abstract class Model extends CollectionItem
         return static::query()->insert($data);
     }
 
-    public function newQuery(): QueryBuilder
+    public function newQuery(): Query
     {
-        return new QueryBuilder([
+        return new Query([
             'resultClass' => static::class,
             'connection' => $this->connection,
             'writeConnection' => $this->writeConnection,
@@ -66,7 +66,7 @@ abstract class Model extends CollectionItem
     private function formatAttr(array $data): array
     {
         foreach ($data as $key => $value) {
-            if (in_array($key, $this->jsonFields)) {
+            if (!is_array($value) && in_array($key, $this->jsonFields)) {
                 $data[$key] = $this->json2Arr($value);
             }
         }

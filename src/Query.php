@@ -2,10 +2,12 @@
 
 namespace Dmpty\PdOrm;
 
+use Closure;
 use PDO;
 use PDOException;
+use Throwable;
 
-class QueryBuilder
+class Query
 {
     private string $resultClass;
 
@@ -31,6 +33,8 @@ class QueryBuilder
 
     private array $updatePlaceholders = [];
 
+    private array $writeValues = [];
+
     private array $wherePlaceholders = [];
 
     private array $whereValues = [];
@@ -46,6 +50,21 @@ class QueryBuilder
         $this->writeConnection = $options['writeConnection'] ?? '';
         $this->table = $options['table'] ?? '';
         $this->primaryKey = $options['primaryKey'] ?? 'id';
+    }
+
+    public function transaction(Closure $callback)
+    {
+        $connection = $this->writeConnection ?: $this->connection;
+        $pdo = DB::getPdo($connection);
+        $pdo->beginTransaction();
+        try {
+            $res = $callback();
+            $pdo->commit();
+            return $res;
+        } catch (Throwable $throwable) {
+            $pdo->rollBack();
+            throw $throwable;
+        }
     }
 
     public function table($table): static
@@ -330,7 +349,7 @@ class QueryBuilder
         $insert = $this->getInsert();
         $update = $this->getUpdate();
         $limit = $this->limit;
-        $this->values = array_merge($this->values, $this->whereValues);
+        $this->values = array_merge($this->writeValues, $this->whereValues);
         $this->sql = match ($this->method) {
             'SELECT' => "SELECT $select FROM $table $where $orderBy $limit;",
             'INSERT' => "INSERT INTO $table $insert;",
@@ -395,7 +414,7 @@ class QueryBuilder
         if (is_array($value)) {
             $value = json_encode($value);
         }
-        $this->values[] = $value;
+        $this->writeValues[] = $value;
     }
 
     private function isOperator($op): bool
@@ -408,8 +427,11 @@ class QueryBuilder
     {
         try {
             $pdo = DB::getPdo($this->connection);
+            $queryBegin = microtime(true);
             $stmt = $pdo->prepare($this->sql);
             $stmt->execute($this->values);
+            $cost = round(microtime(true) - $queryBegin, 4);
+            QueryLog::log($this->connection, $this->sql, $this->values, $cost);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (PDOException $e) {
             throw new PdOrmException('PDO Error: ' . $e->getMessage());
@@ -421,10 +443,13 @@ class QueryBuilder
         try {
             $connection = $this->writeConnection ?: $this->connection;
             $pdo = DB::getPdo($connection);
+            $queryBegin = microtime(true);
             $stmt = $pdo->prepare($this->sql);
             if (!$stmt->execute($this->values)) {
                 return false;
             }
+            $cost = round(microtime(true) - $queryBegin, 4);
+            QueryLog::log($connection, $this->sql, $this->values, $cost);
             if ($this->method === 'INSERT') {
                 return $pdo->lastInsertId();
             }

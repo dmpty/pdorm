@@ -2,6 +2,7 @@
 
 namespace Dmpty\PdOrm;
 
+use Closure;
 use PDO;
 
 class DB
@@ -51,18 +52,28 @@ class DB
         throw new PdOrmException('Connection ' . $connection . ' does not exist');
     }
 
-    public static function connection(string $connection): QueryBuilder
+    public static function connection(string $connection): Query
     {
-        return new QueryBuilder(['connection' => $connection]);
+        return new Query(['connection' => $connection]);
     }
 
-    public static function table(string $table): QueryBuilder
+    public static function table(string $table): Query
     {
-        return (new QueryBuilder)->table($table);
+        return (new Query)->table($table);
     }
 
     public static function execute(string $sql, array $values = []): Collection|bool|int|string
     {
-        return (new QueryBuilder)->executeRaw($sql, $values);
+        return (new Query)->executeRaw($sql, $values);
+    }
+
+    public static function transaction(Closure $callback)
+    {
+        return (new Query)->transaction($callback);
+    }
+
+    public static function getQueryLogs(): array
+    {
+        return QueryLog::get();
     }
 }
