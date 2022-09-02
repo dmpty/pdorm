@@ -65,7 +65,11 @@ class CollectionItem implements ArrayAccess, ArrayAble, JsonSerializable
     protected function json2Arr(string $json): array
     {
         try {
-            return json_decode($json, true);
+            $res = json_decode($json, true);
+            if (!is_array($res)) {
+                return [];
+            }
+            return $res;
         } /** @noinspection PhpUnusedLocalVariableInspection */ catch (Exception $e) {
             return [];
         }
