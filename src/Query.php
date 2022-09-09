@@ -41,6 +41,8 @@ class Query
 
     private array $orderBys = [];
 
+    private string $groupBy = '';
+
     private string $limit = '';
 
     private array $with = [];
@@ -284,16 +286,34 @@ class Query
         return $this;
     }
 
-    public function orderBy(string $field): static
+    public function orderBy(string $field, bool $desc = false): static
     {
-        $this->orderBys[] = $this->getFormattedField($field);
+        $field = $this->getFormattedField($field);
+        if ($desc) {
+            $field .= ' DESC';
+        }
+        $this->orderBys[] = $field;
         return $this;
     }
 
     public function orderByDesc(string $field): static
     {
-        $field = $this->getFormattedField($field);
-        $this->orderBys[] = "$field DESC";
+        return $this->orderBy($field, true);
+    }
+
+    public function groupBy(array|string $fields, bool $withRollup = false): static
+    {
+        if (!is_array($fields)) {
+            $fields = [$fields];
+        }
+        foreach ($fields as &$field) {
+            $field = $this->getFormattedField($field);
+        }
+        $fields = implode(', ', $fields);
+        $this->groupBy = "GROUP BY $fields";
+        if ($withRollup) {
+            $this->groupBy .= ' WITH ROLLUP';
+        }
         return $this;
     }
 
@@ -371,7 +391,7 @@ class Query
     private function getDataWithRelationHas(Collection $data, Relation $relation, string $relationKey): Collection
     {
         $ids = $data->pluck($relation->ownerKey);
-        $relationModels = $relation->target->newQuery()->whereIn($relation->foreignKey, $ids)->get();
+        $relationModels = $relation->query->whereIn($relation->foreignKey, $ids)->get();
         return $data->each(function ($item) use ($relationModels, $relation, $relationKey) {
             $res = $relationModels->where($relation->foreignKey, $item[$relation->ownerKey]);
             $item[$relationKey] = match ($relation->type) {
@@ -385,7 +405,7 @@ class Query
     private function getDataWithRelationBelongsTo(Collection $data, Relation $relation, string $relationKey): Collection
     {
         $ids = $data->pluck($relation->foreignKey);
-        $relationModels = $relation->target->newQuery()->whereIn($relation->ownerKey, $ids)->get();
+        $relationModels = $relation->query->whereIn($relation->ownerKey, $ids)->get();
         return $data->each(function ($item) use ($relationModels, $relation, $relationKey) {
             $item[$relationKey] = $relationModels->where($relation->ownerKey, $item[$relation->foreignKey])->first();
             return $item;
@@ -401,9 +421,10 @@ class Query
         $insert = $this->getInsert();
         $update = $this->getUpdate();
         $limit = $this->limit;
+        $groupBy = $this->groupBy;
         $this->values = array_merge($this->writeValues, $this->whereValues);
         $this->sql = match ($this->method) {
-            'SELECT' => "SELECT $select FROM $table $where $orderBy $limit;",
+            'SELECT' => "SELECT $select FROM $table $where $orderBy $limit $groupBy;",
             'INSERT' => "INSERT INTO $table $insert;",
             'UPDATE' => "UPDATE $table $update $where;",
             'DELETE' => "DELETE FROM $table $where;",

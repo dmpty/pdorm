@@ -2,6 +2,8 @@
 
 namespace Dmpty\PdOrm;
 
+use Closure;
+
 class Relation
 {
     public const TYPE_HAS_ONE = 0;
@@ -12,11 +14,11 @@ class Relation
 
     private Model $model;
 
-    public Model $target;
-
     public string $foreignKey;
 
     public string $ownerKey;
+
+    public Query $query;
 
     public function __construct(int $type, Model $model, string $target, string $foreignKey, string $ownerKey)
     {
@@ -26,32 +28,36 @@ class Relation
         }
         $this->type = $type;
         $this->model = $model;
-        $this->target = $target;
         $this->foreignKey = $foreignKey;
         $this->ownerKey = $ownerKey;
+        $this->query = $this->getQuery($target);
     }
 
     public function get(): Model|Collection|CollectionItem|null
     {
         return match ($this->type) {
-            static::TYPE_HAS_ONE => $this->getHasOne(),
-            static::TYPE_HAS_MANY => $this->getHasMany(),
-            static::TYPE_BELONGS_TO => $this->getBelongsTo(),
+            static::TYPE_HAS_ONE,
+            static::TYPE_BELONGS_TO => $this->query->first(),
+            static::TYPE_HAS_MANY => $this->query->get(),
         };
     }
 
-    private function getHasOne(): Model|CollectionItem|null
+    public function query(Closure $closure): static
     {
-        return $this->getHasMany()->first();
+        $closure($this->query);
+        return $this;
     }
 
-    private function getHasMany(): Collection
+    private function getQuery(Model $model): Query
     {
-        return $this->target->newQuery()->where($this->foreignKey, $this->model[$this->ownerKey])->get();
-    }
-
-    private function getBelongsTo(): Model|CollectionItem|null
-    {
-        return $this->target->newQuery()->where($this->ownerKey, $this->model[$this->foreignKey])->first();
+        $query = $model->newQuery();
+        if ($this->model->attributes) {
+            match ($this->type) {
+                static::TYPE_HAS_ONE,
+                static::TYPE_HAS_MANY => $query->where($this->foreignKey, $this->model[$this->ownerKey]),
+                static::TYPE_BELONGS_TO => $query->where($this->ownerKey, $this->model[$this->foreignKey]),
+            };
+        }
+        return $query;
     }
 }
