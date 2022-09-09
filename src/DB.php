@@ -59,17 +59,17 @@ class DB
 
     public static function table(string $table): Query
     {
-        return (new Query)->table($table);
+        return (new Query())->table($table);
     }
 
     public static function execute(string $sql, array $values = []): Collection|bool|int|string
     {
-        return (new Query)->executeRaw($sql, $values);
+        return (new Query())->executeRaw($sql, $values);
     }
 
     public static function transaction(Closure $callback)
     {
-        return (new Query)->transaction($callback);
+        return (new Query())->transaction($callback);
     }
 
     public static function getQueryLogs(): array

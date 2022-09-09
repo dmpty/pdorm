@@ -25,7 +25,7 @@ abstract class Model extends CollectionItem
 
     public static function query(): Query
     {
-        return (new static)->newQuery();
+        return (new static())->newQuery();
     }
 
     public static function create(array $data): bool|static
@@ -51,6 +51,57 @@ abstract class Model extends CollectionItem
         }
         $pk = $this->primaryKey;
         $this->newQuery()->where([$pk => $this->attributes[$pk]])->update($data);
+    }
+
+    public function __get($name)
+    {
+        if ($value = parent::__get($name)) {
+            return $value;
+        }
+        if ($relation = $this->getRelation($name)) {
+            return $relation->get();
+        }
+        return null;
+    }
+
+    public function offsetGet(mixed $offset)
+    {
+        if ($value = parent::__get($offset)) {
+            return $value;
+        }
+        if ($relation = $this->getRelation($offset)) {
+            return $relation->get();
+        }
+        return null;
+    }
+
+    public function getRelation(string $relationKey): ?Relation
+    {
+        $words = explode('_', $relationKey);
+        $relation = '';
+        foreach ($words as $word) {
+            $relation .= ucfirst($word);
+        }
+        $method = 'relation' . $relation;
+        if (method_exists($this, $method)) {
+            return $this->$method();
+        }
+        return null;
+    }
+
+    protected function hasOne(string $class, string $foreignKey, string $ownerKey = 'id'): Relation
+    {
+        return new Relation(Relation::TYPE_HAS_ONE, $this, $class, $foreignKey, $ownerKey);
+    }
+
+    protected function hasMany(string $class, string $foreignKey, string $ownerKey = 'id'): Relation
+    {
+        return new Relation(Relation::TYPE_HAS_MANY, $this, $class, $foreignKey, $ownerKey);
+    }
+
+    protected function belongsTo(string $class, string $foreignKey, string $ownerKey = 'id'): Relation
+    {
+        return new Relation(Relation::TYPE_BELONGS_TO, $this, $class, $foreignKey, $ownerKey);
     }
 
     private function serializeAttr(array $data): array

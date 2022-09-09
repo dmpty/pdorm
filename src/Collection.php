@@ -190,6 +190,24 @@ class Collection implements ArrayAccess, ArrayAble, Iterator, JsonSerializable
         return $this->items[$index];
     }
 
+    public function add(array|CollectionItem $item): static
+    {
+        if (is_array($item)) {
+            $item = new CollectionItem($item);
+        }
+        $this->items[] = $item;
+        return $this;
+    }
+
+    public function unshift(array|CollectionItem $item): static
+    {
+        if (is_array($item)) {
+            $item = new CollectionItem($item);
+        }
+        array_unshift($this->items, $item);
+        return $this;
+    }
+
     public function take(int $num): static
     {
         $items = array_slice($this->items, 0, $num);

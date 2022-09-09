@@ -43,13 +43,15 @@ class Query
 
     private string $limit = '';
 
+    private array $with = [];
+
     public function __construct(array $options = [])
     {
         $this->resultClass = $options['resultClass'] ?? CollectionItem::class;
         $this->connection = $options['connection'] ?? '';
         $this->writeConnection = $options['writeConnection'] ?? '';
-        $this->table = $options['table'] ?? '';
         $this->primaryKey = $options['primaryKey'] ?? 'id';
+        $this->table = $options['table'] ?? '';
     }
 
     public function transaction(Closure $callback)
@@ -305,6 +307,15 @@ class Query
         return $this;
     }
 
+    public function with(array|string $relations): static
+    {
+        if (!is_array($relations)) {
+            $relations = [$relations];
+        }
+        $this->with = $relations;
+        return $this;
+    }
+
     public function getSql(): string
     {
         $this->build();
@@ -337,7 +348,48 @@ class Query
             $item = new $this->resultClass($item);
             $data[] = $item;
         }
-        return new Collection($data);
+        return $this->getResultWithRelations(new Collection($data));
+    }
+
+    private function getResultWithRelations(Collection $data): Collection
+    {
+        /** @var Model $instance */
+        $instance = new $this->resultClass();
+        foreach ($this->with as $relationKey) {
+            if (!$relation = $instance->getRelation($relationKey)) {
+                continue;
+            }
+            $data = match ($relation->type) {
+                Relation::TYPE_HAS_ONE,
+                Relation::TYPE_HAS_MANY => $this->getDataWithRelationHas($data, $relation, $relationKey),
+                Relation::TYPE_BELONGS_TO => $this->getDataWithRelationBelongsTo($data, $relation, $relationKey),
+            };
+        }
+        return $data;
+    }
+
+    private function getDataWithRelationHas(Collection $data, Relation $relation, string $relationKey): Collection
+    {
+        $ids = $data->pluck($relation->ownerKey);
+        $relationModels = $relation->target->newQuery()->whereIn($relation->foreignKey, $ids)->get();
+        return $data->each(function ($item) use ($relationModels, $relation, $relationKey) {
+            $res = $relationModels->where($relation->foreignKey, $item[$relation->ownerKey]);
+            $item[$relationKey] = match ($relation->type) {
+                Relation::TYPE_HAS_ONE => $res->first(),
+                Relation::TYPE_HAS_MANY => $res,
+            };
+            return $item;
+        });
+    }
+
+    private function getDataWithRelationBelongsTo(Collection $data, Relation $relation, string $relationKey): Collection
+    {
+        $ids = $data->pluck($relation->foreignKey);
+        $relationModels = $relation->target->newQuery()->whereIn($relation->ownerKey, $ids)->get();
+        return $data->each(function ($item) use ($relationModels, $relation, $relationKey) {
+            $item[$relationKey] = $relationModels->where($relation->ownerKey, $item[$relation->foreignKey])->first();
+            return $item;
+        });
     }
 
     private function build(): void
