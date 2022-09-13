@@ -67,7 +67,8 @@ abstract class Model extends CollectionItem
 
     public function __get($name)
     {
-        if ($value = parent::__get($name)) {
+        $value = parent::__get($name);
+        if ($value !== null) {
             return $value;
         }
         if ($relation = $this->getRelation($name)) {
@@ -78,7 +79,8 @@ abstract class Model extends CollectionItem
 
     public function offsetGet(mixed $offset)
     {
-        if ($value = parent::__get($offset)) {
+        $value = parent::offsetGet($offset);
+        if ($value !== null) {
             return $value;
         }
         if ($relation = $this->getRelation($offset)) {
