@@ -4,11 +4,11 @@ namespace Dmpty\PdOrm;
 
 abstract class Model extends CollectionItem
 {
+    public string $table = '';
+
     protected string $connection = '';
 
     protected string $writeConnection = '';
-
-    protected string $table = '';
 
     protected string $primaryKey = 'id';
 
@@ -21,6 +21,11 @@ abstract class Model extends CollectionItem
         $this->originalAttr = $this->serializeAttr($attributes);
         $attributes = $this->formatAttr($attributes);
         parent::__construct($attributes);
+    }
+
+    public static function getTable(): string
+    {
+        return (new static())->table;
     }
 
     public static function query(): Query

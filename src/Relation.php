@@ -12,13 +12,17 @@ class Relation
 
     public int $type;
 
-    private Model $model;
+    public Model $model;
+
+    public Model $target;
 
     public string $foreignKey;
 
     public string $ownerKey;
 
-    public Query $query;
+    private Query $query;
+
+    public ?Closure $withQueryCallback = null;
 
     public function __construct(int $type, Model $model, string $target, string $foreignKey, string $ownerKey)
     {
@@ -28,9 +32,10 @@ class Relation
         }
         $this->type = $type;
         $this->model = $model;
+        $this->target = $target;
         $this->foreignKey = $foreignKey;
         $this->ownerKey = $ownerKey;
-        $this->query = $this->getQuery($target);
+        $this->query = $this->getQuery();
     }
 
     public function get(): Model|Collection|CollectionItem|null
@@ -48,9 +53,15 @@ class Relation
         return $this;
     }
 
-    private function getQuery(Model $model): Query
+    public function withQueryCallback(Closure $closure): static
     {
-        $query = $model->newQuery();
+        $this->withQueryCallback = $closure;
+        return $this;
+    }
+
+    private function getQuery(): Query
+    {
+        $query = $this->target->newQuery();
         if ($this->model->attributes) {
             match ($this->type) {
                 static::TYPE_HAS_ONE,

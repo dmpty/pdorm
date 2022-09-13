@@ -194,6 +194,12 @@ class Query
         return $this;
     }
 
+    public function tableAlias(string $alias): static
+    {
+        $this->fromRaw("$this->table as $alias");
+        return $this;
+    }
+
     public function where(array|string $field, $op = null, $value = null): static
     {
         if (is_array($field)) {
@@ -274,6 +280,15 @@ class Query
         $this->wherePlaceholders[] = "$field NOT BETWEEN ? AND ?";
         $this->whereValues[] = $min;
         $this->whereValues[] = $max;
+        return $this;
+    }
+
+    public function whereExists(Query $query): static
+    {
+        list($sql, $values) = $query->getSqlAndBinds();
+        $sql = "EXISTS ($sql)";
+        $this->wherePlaceholders[] = $sql;
+        $this->whereValues = array_merge($this->whereValues, $values);
         return $this;
     }
 
@@ -368,46 +383,51 @@ class Query
             $item = new $this->resultClass($item);
             $data[] = $item;
         }
-        return $this->getResultWithRelations(new Collection($data));
+        $result = new Collection($data);
+        if ($this->with) {
+            $result = $this->getResultWithRelations($result);
+        }
+        return $result;
     }
 
     private function getResultWithRelations(Collection $data): Collection
     {
-        /** @var Model $instance */
-        $instance = new $this->resultClass();
-        foreach ($this->with as $relationKey) {
-            if (!$relation = $instance->getRelation($relationKey)) {
+        /** @var Model $model */
+        $model = new $this->resultClass();
+        foreach ($this->with as $relationField) {
+            if (!$relation = $model->getRelation($relationField)) {
                 continue;
             }
-            $data = match ($relation->type) {
-                Relation::TYPE_HAS_ONE,
-                Relation::TYPE_HAS_MANY => $this->getDataWithRelationHas($data, $relation, $relationKey),
-                Relation::TYPE_BELONGS_TO => $this->getDataWithRelationBelongsTo($data, $relation, $relationKey),
-            };
+            $data = $this->getDataWithRelation($data, $relation, $relationField);
         }
         return $data;
     }
 
-    private function getDataWithRelationHas(Collection $data, Relation $relation, string $relationKey): Collection
+    private function getDataWithRelation(Collection $data, Relation $relation, string $relationField): Collection
     {
-        $ids = $data->pluck($relation->ownerKey);
-        $relationModels = $relation->query->whereIn($relation->foreignKey, $ids)->get();
-        return $data->each(function ($item) use ($relationModels, $relation, $relationKey) {
-            $res = $relationModels->where($relation->foreignKey, $item[$relation->ownerKey]);
-            $item[$relationKey] = match ($relation->type) {
-                Relation::TYPE_HAS_ONE => $res->first(),
+        $thisKey = $relation->ownerKey;
+        $thatKey = $relation->foreignKey;
+        if ($relation->type === Relation::TYPE_BELONGS_TO) {
+            list($thisKey, $thatKey) = [$thatKey, $thisKey];
+        }
+        $thisModel = $relation->model;
+        $relationModel = $relation->target;
+        $existsQuery = $thisModel->newQuery()
+            ->selectRaw('1')
+            ->whereRaw("$relationModel->table.`$thatKey` = $this->table.`$thisKey`");
+        if ($callback = $relation->withQueryCallback) {
+            $callback($existsQuery);
+        }
+        $existsQuery->wherePlaceholders = array_merge($existsQuery->wherePlaceholders, $this->wherePlaceholders);
+        $existsQuery->whereValues = array_merge($existsQuery->whereValues, $this->whereValues);
+        $relationData = $relation->target->newQuery()->whereExists($existsQuery)->get();
+        return $data->each(function ($item) use ($relationData, $relation, $relationField, $thisKey, $thatKey) {
+            $res = $relationData->where($thatKey, $item[$thisKey]);
+            $item[$relationField] = match ($relation->type) {
+                Relation::TYPE_HAS_ONE,
+                Relation::TYPE_BELONGS_TO => $res->first(),
                 Relation::TYPE_HAS_MANY => $res,
             };
-            return $item;
-        });
-    }
-
-    private function getDataWithRelationBelongsTo(Collection $data, Relation $relation, string $relationKey): Collection
-    {
-        $ids = $data->pluck($relation->foreignKey);
-        $relationModels = $relation->query->whereIn($relation->ownerKey, $ids)->get();
-        return $data->each(function ($item) use ($relationModels, $relation, $relationKey) {
-            $item[$relationKey] = $relationModels->where($relation->ownerKey, $item[$relation->foreignKey])->first();
             return $item;
         });
     }
@@ -424,11 +444,12 @@ class Query
         $groupBy = $this->groupBy;
         $this->values = array_merge($this->writeValues, $this->whereValues);
         $this->sql = match ($this->method) {
-            'SELECT' => "SELECT $select FROM $table $where $orderBy $limit $groupBy;",
-            'INSERT' => "INSERT INTO $table $insert;",
-            'UPDATE' => "UPDATE $table $update $where;",
-            'DELETE' => "DELETE FROM $table $where;",
+            'SELECT' => "SELECT $select FROM $table $where $orderBy $limit $groupBy",
+            'INSERT' => "INSERT INTO $table $insert",
+            'UPDATE' => "UPDATE $table $update $where",
+            'DELETE' => "DELETE FROM $table $where",
         };
+        $this->sql = rtrim($this->sql);
     }
 
     private function getSelect(): string
@@ -446,7 +467,7 @@ class Query
         if (!$this->wherePlaceholders) {
             return '';
         }
-        return 'WHERE ' . implode('AND ', $this->wherePlaceholders);
+        return 'WHERE ' . implode(' AND ', $this->wherePlaceholders);
     }
 
     private function getOrderBy(): string
@@ -474,12 +495,18 @@ class Query
 
     private function getFormattedField($field): string
     {
+        $table = null;
         $fieldArray = explode('.', $field);
         if (count($fieldArray) > 1) {
             list($table, $field) = $fieldArray;
-            return $table . ".`$field`";
         }
-        return "`$field`";
+        if ($field !== '*') {
+            $field = "`$field`";
+        }
+        if ($table) {
+            $field = "$table.$field";
+        }
+        return $field;
     }
 
     private function pushValue($value): void
@@ -499,12 +526,13 @@ class Query
     private function executeRead(): array
     {
         try {
-            $pdo = DB::getPdo($this->connection);
+            $logIndex = QueryLog::log($this->connection, $this->sql, $this->values);
             $queryBegin = microtime(true);
+            $pdo = DB::getPdo($this->connection);
             $stmt = $pdo->prepare($this->sql);
             $stmt->execute($this->values);
             $cost = round(microtime(true) - $queryBegin, 4);
-            QueryLog::log($this->connection, $this->sql, $this->values, $cost);
+            QueryLog::logCost($logIndex, $cost);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (PDOException $e) {
             throw new PdOrmException('PDO Error: ' . $e->getMessage());
@@ -515,14 +543,15 @@ class Query
     {
         try {
             $connection = $this->writeConnection ?: $this->connection;
-            $pdo = DB::getPdo($connection);
+            $logIndex = QueryLog::log($connection, $this->sql, $this->values);
             $queryBegin = microtime(true);
+            $pdo = DB::getPdo($connection);
             $stmt = $pdo->prepare($this->sql);
             if (!$stmt->execute($this->values)) {
                 return false;
             }
             $cost = round(microtime(true) - $queryBegin, 4);
-            QueryLog::log($connection, $this->sql, $this->values, $cost);
+            QueryLog::logCost($logIndex, $cost);
             if ($this->method === 'INSERT') {
                 return $pdo->lastInsertId();
             }
