@@ -420,7 +420,11 @@ class Query
         }
         $existsQuery->wherePlaceholders = array_merge($existsQuery->wherePlaceholders, $this->wherePlaceholders);
         $existsQuery->whereValues = array_merge($existsQuery->whereValues, $this->whereValues);
-        $relationData = $relation->target->newQuery()->whereExists($existsQuery)->get();
+        $relationQuery = $relation->target->newQuery()->whereExists($existsQuery);
+        if ($callback = $relation->queryCallback) {
+            $callback($relationQuery);
+        }
+        $relationData = $relationQuery->get();
         return $data->each(function ($item) use ($relationData, $relation, $relationField, $thisKey, $thatKey) {
             $res = $relationData->where($thatKey, $item[$thisKey]);
             $item[$relationField] = match ($relation->type) {

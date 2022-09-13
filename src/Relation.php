@@ -20,7 +20,7 @@ class Relation
 
     public string $ownerKey;
 
-    private Query $query;
+    public ?Closure $queryCallback = null;
 
     public ?Closure $withQueryCallback = null;
 
@@ -35,21 +35,24 @@ class Relation
         $this->target = $target;
         $this->foreignKey = $foreignKey;
         $this->ownerKey = $ownerKey;
-        $this->query = $this->getQuery();
     }
 
     public function get(): Model|Collection|CollectionItem|null
     {
+        $query = $this->getQuery();
+        if ($callback = $this->queryCallback) {
+            $callback($query);
+        }
         return match ($this->type) {
             static::TYPE_HAS_ONE,
-            static::TYPE_BELONGS_TO => $this->query->first(),
-            static::TYPE_HAS_MANY => $this->query->get(),
+            static::TYPE_BELONGS_TO => $query->first(),
+            static::TYPE_HAS_MANY => $query->get(),
         };
     }
 
     public function query(Closure $closure): static
     {
-        $closure($this->query);
+        $this->queryCallback = $closure;
         return $this;
     }
 
