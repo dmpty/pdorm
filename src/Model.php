@@ -51,11 +51,18 @@ abstract class Model extends CollectionItem
 
     public function save()
     {
+        if (!$this->originalAttr) {
+            $new = $this->newQuery()->insert($this->attributes);
+            $this->attributes[$this->primaryKey] = $new[$this->primaryKey];
+            $this->originalAttr = $this->serializeAttr($this->attributes);
+            return;
+        }
         if (!$data = $this->getModifiedAttr()) {
             return;
         }
         $pk = $this->primaryKey;
         $this->newQuery()->where([$pk => $this->attributes[$pk]])->update($data);
+        $this->originalAttr = $this->serializeAttr($this->attributes);
     }
 
     public function __get($name)
@@ -133,20 +140,18 @@ abstract class Model extends CollectionItem
     {
         $data = [];
         $current = $this->serializeAttr($this->attributes);
-        foreach ($current as $key => $value) {
-            if (isset($this->originalAttr[$key])) {
-                $originalValue = $this->originalAttr[$key];
-                if (in_array($key, $this->jsonFields)) {
-                    $originalValue = json_encode($this->json2Arr($originalValue));
-                }
-                if ($originalValue === $value) {
-                    continue;
-                }
-                if ($originalValue === null && $value === null) {
-                    continue;
-                }
+        foreach ($this->originalAttr as $key => $value) {
+            if (in_array($key, $this->jsonFields)) {
+                $value = json_encode($this->json2Arr($value));
             }
-            $data[$key] = $value;
+            $currentValue = $current[$key] ?? null;
+            if ($currentValue === $value) {
+                continue;
+            }
+            if ($currentValue === null && $value === null) {
+                continue;
+            }
+            $data[$key] = $currentValue;
         }
         return $data;
     }

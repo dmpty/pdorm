@@ -211,7 +211,10 @@ class Query
                 }
             }
         } else {
-            if ($value === null && $op !== null) {
+            if ($value === null) {
+                if ($op === null) {
+                    return $this->whereNull($field);
+                }
                 $value = $op;
                 $op = '=';
             }
