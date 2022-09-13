@@ -79,7 +79,7 @@ class CollectionItem implements ArrayAccess, ArrayAble, JsonSerializable
     {
         $parentKey = $keys[0];
         array_shift($keys);
-        if (isset($data[$parentKey]) && is_array($data[$parentKey])) {
+        if (isset($data[$parentKey]) && (is_array($data[$parentKey]) || $data[$parentKey] instanceof ArrayAccess)) {
             $array = $data[$parentKey];
             if (count($keys) === 1) {
                 return $array[$keys[0]] ?? null;
