@@ -299,7 +299,11 @@ class Query
     {
         $this->wherePlaceholders[] = $raw;
         if ($value !== null) {
-            $this->whereValues[] = $value;
+            if (is_array($value)) {
+                $this->whereValues = array_merge($this->whereValues, $value);
+            } else {
+                $this->whereValues[] = $value;
+            }
         }
         return $this;
     }
