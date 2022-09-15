@@ -188,9 +188,18 @@ class Query
         return $this;
     }
 
-    public function fromRaw(string $raw): static
+    public function fromRaw(string|Query $raw, string $alias = ''): static
     {
-        $this->from = $raw;
+        if ($raw instanceof Query) {
+            list($sql, $values) = $raw->getSqlAndBinds();
+            $this->from = "($sql)";
+            if ($alias) {
+                $this->from .= " AS $alias";
+            }
+            $this->whereValues = array_merge($this->whereValues, $values);
+        } else {
+            $this->from = $raw;
+        }
         return $this;
     }
 
@@ -242,28 +251,28 @@ class Query
         return $this;
     }
 
-    public function whereIn(string $field, array $values): static
+    public function whereIn(string $field, array|Query $values): static
     {
         $field = $this->getFormattedField($field);
-        $placeholders = [];
-        for ($i = 0; $i < count($values); $i++) {
-            $placeholders[] = '?';
+        if ($values instanceof Query) {
+            list($placeholder, $values) = $values->getSqlAndBinds();
+        } else {
+            $placeholder = $this->getInArrayPlaceholder(count($values));
         }
-        $placeholders = implode(', ', $placeholders);
-        $this->wherePlaceholders[] = "$field IN ($placeholders)";
+        $this->wherePlaceholders[] = "$field IN ($placeholder)";
         $this->whereValues = array_merge($this->whereValues, $values);
         return $this;
     }
 
-    public function whereNotIn(string $field, array $values): static
+    public function whereNotIn(string $field, array|Query $values): static
     {
         $field = $this->getFormattedField($field);
-        $placeholders = [];
-        for ($i = 0; $i < count($values); $i++) {
-            $placeholders[] = '?';
+        if ($values instanceof Query) {
+            list($placeholder, $values) = $values->getSqlAndBinds();
+        } else {
+            $placeholder = $this->getInArrayPlaceholder(count($values));
         }
-        $placeholders = implode(', ', $placeholders);
-        $this->wherePlaceholders[] = "$field NOT IN ($placeholders)";
+        $this->wherePlaceholders[] = "$field NOT IN ($placeholder)";
         $this->whereValues = array_merge($this->whereValues, $values);
         return $this;
     }
@@ -417,21 +426,11 @@ class Query
         if ($relation->type === Relation::TYPE_BELONGS_TO) {
             list($thisKey, $thatKey) = [$thatKey, $thisKey];
         }
-        $thisModel = $relation->model;
-        $relationModel = $relation->target;
-        $existsQuery = $thisModel->newQuery()
-            ->selectRaw('1')
-            ->whereRaw("$relationModel->table.`$thatKey` = $this->table.`$thisKey`");
-        if ($callback = $relation->withQueryCallback) {
-            $callback($existsQuery);
+        if ($this->limit || $relation->withMode === Relation::WITH_MODE_IN) {
+            $relationData = $this->getRelationDateUseIn($relation, $thisKey, $thatKey);
+        } else {
+            $relationData = $this->getRelationDateUseExists($relation, $thisKey, $thatKey);
         }
-        $existsQuery->wherePlaceholders = array_merge($existsQuery->wherePlaceholders, $this->wherePlaceholders);
-        $existsQuery->whereValues = array_merge($existsQuery->whereValues, $this->whereValues);
-        $relationQuery = $relation->target->newQuery()->whereExists($existsQuery);
-        if ($callback = $relation->queryCallback) {
-            $callback($relationQuery);
-        }
-        $relationData = $relationQuery->get();
         return $data->each(function ($item) use ($relationData, $relation, $relationField, $thisKey, $thatKey) {
             $res = $relationData->where($thatKey, $item[$thisKey]);
             $item[$relationField] = match ($relation->type) {
@@ -441,6 +440,45 @@ class Query
             };
             return $item;
         });
+    }
+
+    private function getRelationDateUseIn(Relation $relation, string $thisKey, string $thatKey): Collection
+    {
+        $thisModel = $relation->model;
+        $relationModel = $relation->target;
+        $inQuery = $thisModel->newQuery()->select($thisKey);
+        $inQuery->wherePlaceholders = array_merge($inQuery->wherePlaceholders, $this->wherePlaceholders);
+        $inQuery->whereValues = array_merge($inQuery->whereValues, $this->whereValues);
+        $inQuery->limit = $this->limit;
+        if ($callback = $relation->withQueryCallback) {
+            $callback($inQuery);
+        }
+        $subQuery = $thisModel->newQuery()->select($thisKey)->fromRaw($inQuery, '$sub');
+        $relationQuery = $relationModel->newQuery()->whereIn($thatKey, $subQuery);
+        if ($callback = $relation->queryCallback) {
+            $callback($relationQuery);
+        }
+        return $relationQuery->get();
+    }
+
+    private function getRelationDateUseExists(Relation $relation, string $thisKey, string $thatKey): Collection
+    {
+        $thisModel = $relation->model;
+        $relationModel = $relation->target;
+        $subQuery = $thisModel->newQuery()
+            ->selectRaw('1')
+            ->whereRaw("$relationModel->table.`$thatKey` = $this->table.`$thisKey`");
+        $subQuery->wherePlaceholders = array_merge($subQuery->wherePlaceholders, $this->wherePlaceholders);
+        $subQuery->whereValues = array_merge($subQuery->whereValues, $this->whereValues);
+        $subQuery->limit = $this->limit;
+        if ($callback = $relation->withQueryCallback) {
+            $callback($subQuery);
+        }
+        $relationQuery = $relationModel->newQuery()->whereExists($subQuery);
+        if ($callback = $relation->queryCallback) {
+            $callback($relationQuery);
+        }
+        return $relationQuery->get();
     }
 
     private function build(): void
@@ -532,6 +570,15 @@ class Query
     {
         $op = strtolower($op);
         return in_array($op, ['=', '<>', '>', '>=', '<', '<=', 'like']);
+    }
+
+    private function getInArrayPlaceholder(int $count): string
+    {
+        $placeholder = [];
+        for ($i = 0; $i < $count; $i++) {
+            $placeholder[] = '?';
+        }
+        return implode(', ', $placeholder);
     }
 
     private function executeRead(): array

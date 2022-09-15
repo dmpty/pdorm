@@ -10,7 +10,12 @@ class Relation
     public const TYPE_HAS_MANY = 1;
     public const TYPE_BELONGS_TO = 2;
 
+    public const WITH_MODE_IN = 1;
+    public const WITH_MODE_EXISTS = 2;
+
     public int $type;
+
+    public int $withMode = self::WITH_MODE_IN;
 
     public Model $model;
 
@@ -50,15 +55,23 @@ class Relation
         };
     }
 
-    public function query(Closure $closure): static
+    public function queryCallback(Closure $closure): static
     {
         $this->queryCallback = $closure;
         return $this;
     }
 
-    public function withQueryCallback(Closure $closure): static
+    public function subQueryCallback(Closure $closure): static
     {
         $this->withQueryCallback = $closure;
+        return $this;
+    }
+
+    public function withMode(int $mode): static
+    {
+        if (in_array($mode, [self::WITH_MODE_IN, self::WITH_MODE_EXISTS])) {
+            $this->withMode = $mode;
+        }
         return $this;
     }
 
