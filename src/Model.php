@@ -156,7 +156,7 @@ abstract class Model extends CollectionItem
 
     private function getAttributeRelation(string $name)
     {
-        if (isset($this->relations[$name])) {
+        if (in_array($name, array_keys($this->relations))) {
             return $this->relations[$name];
         }
         if ($relation = $this->getRelation($name)) {
