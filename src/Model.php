@@ -16,6 +16,8 @@ abstract class Model extends CollectionItem
 
     private array $originalAttr;
 
+    private array $relations = [];
+
     public function __construct(array $attributes = [])
     {
         $this->originalAttr = $this->serializeAttr($attributes);
@@ -71,10 +73,7 @@ abstract class Model extends CollectionItem
         if ($value !== null) {
             return $value;
         }
-        if ($relation = $this->getRelation($name)) {
-            return $relation->get();
-        }
-        return null;
+        return $this->getAttributeRelation($name);
     }
 
     public function offsetGet(mixed $offset)
@@ -83,10 +82,7 @@ abstract class Model extends CollectionItem
         if ($value !== null) {
             return $value;
         }
-        if ($relation = $this->getRelation($offset)) {
-            return $relation->get();
-        }
-        return null;
+        return $this->getAttributeRelation($offset);
     }
 
     public function getRelation(string $relationKey): ?Relation
@@ -156,5 +152,17 @@ abstract class Model extends CollectionItem
             $data[$key] = $currentValue;
         }
         return $data;
+    }
+
+    private function getAttributeRelation(string $name)
+    {
+        if (isset($this->relations[$name])) {
+            return $this->relations[$name];
+        }
+        if ($relation = $this->getRelation($name)) {
+            $this->relations[$name] = $relation->get();
+            return $this->relations[$name];
+        }
+        return null;
     }
 }
