@@ -87,16 +87,17 @@ abstract class Model extends CollectionItem
 
     public function getRelation(string $relationKey): ?Relation
     {
-        $words = explode('_', $relationKey);
-        $relation = '';
-        foreach ($words as $word) {
-            $relation .= ucfirst($word);
-        }
-        $method = 'relation' . $relation;
+        $method = $this->getRelationMethod($relationKey);
         if (method_exists($this, $method)) {
             return $this->$method();
         }
         return null;
+    }
+
+    public function hasRelation(string $relationKey): bool
+    {
+        $method = $this->getRelationMethod($relationKey);
+        return method_exists($this, $method);
     }
 
     protected function hasOne(string $class, string $foreignKey, string $ownerKey = 'id'): Relation
@@ -138,18 +139,21 @@ abstract class Model extends CollectionItem
     {
         $data = [];
         $current = $this->serializeAttr($this->attributes);
-        foreach ($this->originalAttr as $key => $value) {
-            if (in_array($key, $this->jsonFields)) {
-                $value = json_encode($this->json2Arr($value));
-            }
-            $currentValue = $current[$key] ?? null;
-            if ($currentValue === $value) {
+        foreach ($current as $key => $value) {
+            if ($this->hasRelation($key)) {
                 continue;
             }
-            if ($currentValue === null && $value === null) {
-                continue;
+            $originalKeys = array_keys($this->originalAttr);
+            if (in_array($key, $originalKeys)) {
+                $originalValue = $this->originalAttr[$key];
+                if (in_array($key, $this->jsonFields)) {
+                    $originalValue = json_encode($this->json2Arr($originalValue));
+                }
+                if ($originalValue === $value) {
+                    continue;
+                }
             }
-            $data[$key] = $currentValue;
+            $data[$key] = $value;
         }
         return $data;
     }
@@ -164,5 +168,15 @@ abstract class Model extends CollectionItem
             return $this->relations[$name];
         }
         return null;
+    }
+
+    private function getRelationMethod(string $relationKey): string
+    {
+        $words = explode('_', $relationKey);
+        $relation = '';
+        foreach ($words as $word) {
+            $relation .= ucfirst($word);
+        }
+        return 'relation' . $relation;
     }
 }

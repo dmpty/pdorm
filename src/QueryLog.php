@@ -31,4 +31,9 @@ class QueryLog
     {
         return self::$logs;
     }
+
+    public static function reset(): void
+    {
+        self::$logs = [];
+    }
 }
